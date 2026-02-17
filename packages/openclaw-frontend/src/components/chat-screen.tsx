@@ -181,7 +181,7 @@ export function ChatScreen({ agent }: ChatScreenProps) {
                         {/* Quick prompts */}
                         <div className="flex flex-col gap-2 w-full max-w-xs">
                             {[
-                                'Wake up? Lets bootstrap!',
+                                'Wake up!',
                                 'Choose an identity for yourself',
                                 'Help me brainstorm ideas',
                             ].map((prompt) => (
