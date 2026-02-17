@@ -252,6 +252,9 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
                         placeholder="Type a command..."
                         className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-white/20"
                         autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         autoFocus
                     />
                     {sending && <Loader2 size={16} className="animate-spin text-white/40" />}
