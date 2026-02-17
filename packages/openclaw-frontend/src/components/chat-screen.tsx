@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Loader2, Terminal, Sparkles } from 'lucide-react';
 import { ChatMessage } from '@/components/chat-message';
 import { apiFetch } from '@/lib/api';
+import { createClient } from '@/lib/supabase';
 import type { Agent } from '@/hooks/use-agent';
 
 interface Message {
@@ -24,6 +25,7 @@ export function ChatScreen({ agent }: ChatScreenProps) {
     const [streaming, setStreaming] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const supabase = createClient();
 
     const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -32,6 +34,73 @@ export function ChatScreen({ agent }: ChatScreenProps) {
     useEffect(() => {
         scrollToBottom();
     }, [messages, scrollToBottom]);
+
+    // Initial fetch and Subscription
+    useEffect(() => {
+        const fetchHistory = async () => {
+            const { data, error } = await supabase
+                .from('agent_conversations')
+                .select('*')
+                .eq('agent_id', agent.id)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (!error && data) {
+                const history: Message[] = data.reverse().map((msg: any) => ({
+                    id: msg.id,
+                    role: (msg.sender === 'user' ? 'user' : 'assistant') as "user" | "assistant",
+                    content: msg.content,
+                    timestamp: new Date(msg.created_at),
+                }));
+                // Filter out commands meant only for terminal if desired
+                // For now, let's just show everything.
+                setMessages(history);
+            }
+        };
+
+        fetchHistory();
+
+        // Subscribe to new messages
+        const channel = supabase
+            .channel(`chat-${agent.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'agent_conversations',
+                    filter: `agent_id=eq.${agent.id}`,
+                },
+                (payload) => {
+                    const newMsg = payload.new;
+                    const role = newMsg.sender === 'user' ? 'user' : 'assistant';
+
+                    // Update messages: avoid duplicates if we optimistically added
+                    setMessages((prev) => {
+                        if (prev.some(m => m.id === newMsg.id)) return prev;
+
+                        return [
+                            ...prev,
+                            {
+                                id: newMsg.id,
+                                role: role as 'user' | 'assistant',
+                                content: newMsg.content,
+                                timestamp: new Date(newMsg.created_at),
+                            }
+                        ];
+                    });
+
+                    if (role === 'assistant') {
+                        setStreaming(false);
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [agent.id, supabase]);
 
     // Auto-resize textarea
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -45,8 +114,10 @@ export function ChatScreen({ agent }: ChatScreenProps) {
         const text = input.trim();
         if (!text || sending) return;
 
+        // Optimistic update
+        const userMessageId = crypto.randomUUID();
         const userMessage: Message = {
-            id: crypto.randomUUID(),
+            id: userMessageId,
             role: 'user',
             content: text,
             timestamp: new Date(),
@@ -63,33 +134,23 @@ export function ChatScreen({ agent }: ChatScreenProps) {
         }
 
         try {
-            // Stub: Call backend chat API
-            const response = await apiFetch<{ message: string }>(`/agents/${agent.id}/chat`, {
+            await apiFetch<{ message: string }>(`/agents/${agent.id}/chat`, {
                 method: 'POST',
                 body: JSON.stringify({ content: text }),
             });
-
-            const assistantMessage: Message = {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                content: response.message || 'I received your message. Let me process that...',
-                timestamp: new Date(),
-            };
-
-            setMessages(prev => [...prev, assistantMessage]);
+            // Response will arrive via Supabase subscription
         } catch {
-            // Stub fallback — simulate response when backend is unavailable
             const assistantMessage: Message = {
                 id: crypto.randomUUID(),
                 role: 'assistant',
-                content: `I'm your OpenClaw agent "${agent.name}". The chat API is being set up — I'll be fully operational soon! 🦀`,
+                content: `Error: Unable to reach your agent. Please check your connection.`,
                 timestamp: new Date(),
             };
 
             setMessages(prev => [...prev, assistantMessage]);
+            setStreaming(false);
         } finally {
             setSending(false);
-            setStreaming(false);
         }
     };
 
