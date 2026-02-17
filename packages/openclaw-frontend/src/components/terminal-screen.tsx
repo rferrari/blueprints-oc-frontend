@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Loader2, Terminal as TerminalIcon } from 'lucide-react';
+import { Loader2, Terminal as TerminalIcon, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { createClient } from '@/lib/supabase';
 import type { Agent } from '@/hooks/use-agent';
@@ -196,15 +196,30 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
         }
     };
 
+    const clearMessages = () => {
+        if (confirm('Clear terminal history from view?')) {
+            setMessages([]);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full bg-[#0c0c0c] font-mono text-sm">
             {/* Terminal Header */}
             <div className="flex items-center px-4 py-2 border-b border-white/10 bg-black/20 text-xs text-muted-foreground">
                 <TerminalIcon size={14} className="mr-2" />
                 <span>{agent.name}@openclaw:~/workspace</span>
-                <div className="ml-auto flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500/50 animate-pulse" />
-                    <span className="text-[10px] uppercase font-bold text-green-500">Connected</span>
+                <div className="ml-auto flex items-center gap-3">
+                    <button
+                        onClick={clearMessages}
+                        className="hover:text-red-400 transition-colors"
+                        title="Clear view"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full bg-green-500/50 animate-pulse" />
+                        <span className="text-[10px] uppercase font-bold text-green-500">Connected</span>
+                    </div>
                 </div>
             </div>
 

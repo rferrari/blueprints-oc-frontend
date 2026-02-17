@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Terminal, Sparkles } from 'lucide-react';
+import { Send, Loader2, Terminal, Sparkles, Trash2 } from 'lucide-react';
 import { ChatMessage } from '@/components/chat-message';
 import { apiFetch } from '@/lib/api';
 import { createClient } from '@/lib/supabase';
@@ -161,10 +161,29 @@ export function ChatScreen({ agent }: ChatScreenProps) {
         }
     };
 
+    const clearMessages = () => {
+        if (confirm('Clear chat history from view?')) {
+            setMessages([]);
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full relative">
+            {/* Header info / Actions */}
+            {messages.length > 0 && (
+                <div className="absolute top-0 right-0 p-4 z-10">
+                    <button
+                        onClick={clearMessages}
+                        className="p-2 rounded-xl bg-white/5 border border-white/10 hover:border-red-500/30 hover:bg-red-500/5 text-muted-foreground hover:text-red-400 transition-all active:scale-95"
+                        title="Clear view"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                </div>
+            )}
+
             {/* Messages area */}
-            <div className="flex-1 overflow-y-auto scroll-smooth-mobile pb-4">
+            <div className="flex-1 overflow-y-auto scroll-smooth-mobile pb-4 pt-2">
                 {messages.length === 0 ? (
                     /* Empty state */
                     <div className="flex flex-col items-center justify-center h-full px-6 py-12 text-center">
