@@ -43,7 +43,7 @@ export default function LoginPage() {
                         <Terminal className="w-8 h-8 text-primary" />
                     </div>
                     <h1 className="text-3xl font-black tracking-tight">
-                        Open<span className="text-primary">Claw</span>
+                        Blue<span className="text-primary">prints</span>
                     </h1>
                     <p className="text-muted-foreground text-sm">
                         Your AI Agent, Ready in Seconds

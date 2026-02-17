@@ -26,5 +26,8 @@
   "devDependencies": {
     "@elizaos/cli": "^1.7.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@openrouter/sdk": "^0.8.0"
   }
 }

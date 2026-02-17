@@ -10,7 +10,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const outfit = Outfit({ subsets: ['latin'], variable: '--font-outfit' });
 
 export const metadata: Metadata = {
-    title: 'OpenClaw',
+    title: 'Blueprints',
     description: 'Your AI Agent, Ready in Seconds',
     manifest: undefined,
 };
