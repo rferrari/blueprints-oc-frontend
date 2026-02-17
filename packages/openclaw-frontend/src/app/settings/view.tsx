@@ -8,6 +8,7 @@ import { useAgent } from '@/hooks/use-agent';
 import { useNotification } from '@/components/notification-provider';
 import { BottomNav } from '@/components/bottom-nav';
 import { apiPatch } from '@/lib/api';
+import { createClient } from '@/lib/supabase';
 import {
     Settings as SettingsIcon,
     ChevronDown,
@@ -22,6 +23,9 @@ import {
     AlertTriangle,
     Terminal,
     Zap,
+    Power,
+    Play,
+    Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -72,8 +76,42 @@ function SettingsContent() {
     const [agentName, setAgentName] = useState('');
     const [systemPrompt, setSystemPrompt] = useState('');
     const [saving, setSaving] = useState(false);
+    const [agentToggling, setAgentToggling] = useState(false);
     const [apiKey, setApiKey] = useState('');
     const [apiKeyStatus, setApiKeyStatus] = useState<'configured' | 'missing'>('missing');
+
+    const supabase = createClient();
+
+    const handleToggleAgent = async () => {
+        if (!agent) return;
+        setAgentToggling(true);
+
+        // Get current state from desired_state array
+        const desiredState = agent.agent_desired_state?.[0];
+        const currentlyEnabled = desiredState?.enabled ?? false;
+
+        try {
+            const { error } = await supabase
+                .from('agent_desired_state')
+                .update({ enabled: !currentlyEnabled })
+                .eq('agent_id', agent.id);
+
+            if (error) throw error;
+
+            showNotification(
+                currentlyEnabled ? 'Agent shutdown requested' : 'Agent startup requested',
+                'success'
+            );
+
+            // Refetch to update UI state
+            setTimeout(() => refetch(), 1000);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to toggle agent';
+            showNotification(message, 'error');
+        } finally {
+            setAgentToggling(false);
+        }
+    };
 
     // Initialize state from agent once loaded
     React.useEffect(() => {
@@ -158,6 +196,51 @@ function SettingsContent() {
 
             {/* Content */}
             <main className="flex-1 overflow-y-auto scroll-smooth-mobile px-4 py-5 space-y-3">
+                {/* Agent Control */}
+                <div className="glass-card rounded-2xl overflow-hidden p-5 flex items-center justify-between border border-primary/10 bg-white/[0.02]">
+                    <div className="flex items-center gap-3">
+                        <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner",
+                            (agent.agent_desired_state?.[0]?.enabled)
+                                ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                                : "bg-red-500/10 text-red-500 border border-red-500/20"
+                        )}>
+                            <Power size={20} />
+                        </div>
+                        <div>
+                            <p className="font-bold text-sm">Agent Power</p>
+                            <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                <span className={cn(
+                                    "w-1.5 h-1.5 rounded-full inline-block",
+                                    agent.agent_actual_state?.status === 'running' ? "bg-green-500 animate-pulse" : "bg-muted-foreground/50"
+                                )} />
+                                {agent.agent_actual_state?.status || 'stopped'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={handleToggleAgent}
+                        disabled={agentToggling}
+                        className={cn(
+                            "px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2",
+                            (agent.agent_desired_state?.[0]?.enabled)
+                                ? "bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20"
+                                : "bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90"
+                        )}
+                    >
+                        {agentToggling ? (
+                            <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                            agent.agent_desired_state?.[0]?.enabled ? (
+                                <><Square size={14} fill="currentColor" /> Stop Agent</>
+                            ) : (
+                                <><Play size={14} fill="currentColor" /> Start Agent</>
+                            )
+                        )}
+                    </button>
+                </div>
+
                 {/* Agent Configuration */}
                 <CollapsibleCard title="Agent Configuration" icon={<User size={18} />} defaultOpen>
                     <div className="space-y-4">
