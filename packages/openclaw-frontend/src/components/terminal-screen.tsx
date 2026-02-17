@@ -20,6 +20,9 @@ interface TerminalScreenProps {
 
 export function TerminalScreen({ agent }: TerminalScreenProps) {
     const [messages, setMessages] = useState<Message[]>([]);
+    const [commandHistory, setCommandHistory] = useState<string[]>([]);
+    const [historyIndex, setHistoryIndex] = useState(-1);
+    const [tempInput, setTempInput] = useState('');
     const [input, setInput] = useState('');
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -52,6 +55,14 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
                     timestamp: new Date(msg.created_at),
                     isCommand: msg.content.startsWith('/terminal')
                 }));
+
+                // Extract command text for the history state
+                const userCommands = history
+                    .filter(m => m.role === 'user' && m.content.startsWith('/terminal '))
+                    .map(m => m.content.replace('/terminal ', ''));
+
+                setCommandHistory(userCommands);
+
                 // Clean up /terminal prefix for display if it's a command
                 const cleanedHistory = history.map((msg: Message) => ({
                     ...msg,
@@ -76,7 +87,7 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
                     table: 'agent_conversations',
                     filter: `agent_id=eq.${agent.id}`,
                 },
-                (payload) => {
+                (payload: { new: any }) => {
                     const newMsg = payload.new;
                     const role = newMsg.sender === 'user' ? 'user' : 'assistant';
 
@@ -111,6 +122,15 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
         const text = input.trim();
         if (!text || sending) return;
 
+        // Add to history
+        setCommandHistory(prev => {
+            const newHistory = [...prev, text];
+            if (newHistory.length > 100) return newHistory.slice(newHistory.length - 100);
+            return newHistory;
+        });
+        setHistoryIndex(-1);
+        setTempInput('');
+
         // Auto-prefix with /terminal if not present
         const commandContent = text.startsWith('/terminal') ? text : `/terminal ${text}`;
 
@@ -137,7 +157,7 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
             const errorMessage: Message = {
                 id: crypto.randomUUID(),
                 role: 'assistant',
-                content: `Error executing command: connection failed.`,
+                content: `Error: Command execution failed.`,
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, errorMessage]);
@@ -151,6 +171,28 @@ export function TerminalScreen({ agent }: TerminalScreenProps) {
         if (e.key === 'Enter') {
             e.preventDefault();
             sendCommand();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (commandHistory.length === 0) return;
+
+            const newIndex = historyIndex + 1;
+            if (newIndex < commandHistory.length) {
+                if (historyIndex === -1) {
+                    setTempInput(input);
+                }
+                setHistoryIndex(newIndex);
+                setInput(commandHistory[commandHistory.length - 1 - newIndex]);
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIndex > 0) {
+                const newIndex = historyIndex - 1;
+                setHistoryIndex(newIndex);
+                setInput(commandHistory[commandHistory.length - 1 - newIndex]);
+            } else if (historyIndex === 0) {
+                setHistoryIndex(-1);
+                setInput(tempInput);
+            }
         }
     };
 
