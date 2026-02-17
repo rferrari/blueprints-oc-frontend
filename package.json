@@ -9,7 +9,6 @@
     "dev:frontend": "bun run --cwd packages/frontend dev",
     "dev:backend": "bun run --cwd packages/backend dev",
     "dev:worker": "bun run --cwd packages/worker dev",
-    "dev:openclaw": "bun run --cwd packages/openclaw-frontend dev",
     "dev:all": "bun x concurrently \"bun dev:frontend\" \"bun dev:backend\" \"bun dev:worker\"",
     "start:frontend": "bun run --cwd packages/frontend start",
     "start:backend": "bun run --cwd packages/backend start",
@@ -18,7 +17,6 @@
     "build:frontend": "bun run --cwd packages/shared build && bun run --cwd packages/frontend build",
     "build:backend": "bun run --cwd packages/shared build && bun run --cwd packages/backend build",
     "build:worker": "bun run --cwd packages/shared build && bun run --cwd packages/worker build",
-    "build:openclaw": "bun run --cwd packages/shared build && bun run --cwd packages/openclaw-frontend build",
     "build": "bun run --cwd packages/shared build && bun --workspaces run build",
     "rebuild": "rm -rf node_modules && bun install && bun run build",
     "lint": "bun --workspaces run lint"
@@ -26,8 +24,5 @@
   "devDependencies": {
     "@elizaos/cli": "^1.7.2",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "@openrouter/sdk": "^0.8.0"
   }
 }

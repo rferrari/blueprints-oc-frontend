@@ -111,10 +111,25 @@ export function useAgent(): UseAgentReturn {
                 .eq('id', blueprintId)
                 .single();
 
-            const blueprintConfig = JSON.parse(JSON.stringify(blueprint?.config || {}));
+            // Robust JSON parsing: Supabase might return it as a string or a JSON object
+            let blueprintConfig: any = {};
+            try {
+                if (typeof blueprint?.config === 'string') {
+                    blueprintConfig = JSON.parse(blueprint.config);
+                } else if (blueprint?.config && typeof blueprint.config === 'object') {
+                    blueprintConfig = JSON.parse(JSON.stringify(blueprint.config)); // Deep clone
+                }
+            } catch (err) {
+                console.warn('Failed to parse blueprint config, using empty object');
+                blueprintConfig = {};
+            }
 
-            // Step A.1: Ensure Gateway Auth (Critical for startup)
+            // Step A.1: Ensure Gateway Config & Auth (Critical for startup)
             if (!blueprintConfig.gateway) blueprintConfig.gateway = {};
+            if (!blueprintConfig.gateway.http) blueprintConfig.gateway.http = { endpoints: { chatCompletions: { enabled: true } } };
+            if (blueprintConfig.gateway.bind !== 'lan') blueprintConfig.gateway.bind = 'lan';
+            if (blueprintConfig.gateway.mode !== 'local') blueprintConfig.gateway.mode = 'local';
+
             if (!blueprintConfig.gateway.auth || (!blueprintConfig.gateway.auth.token && !blueprintConfig.gateway.auth.password)) {
                 console.log('Generating missing gateway auth for new agent');
                 blueprintConfig.gateway.auth = {

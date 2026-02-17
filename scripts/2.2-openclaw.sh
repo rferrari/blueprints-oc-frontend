@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# WARNING:
+# This script is for FIRST VPS SETUP ONLY.
+# Not used in production runtime.
+
+# This script prepares OpenClaw to be packaged with the blueprints worker.
+# It should be run from the root of the blueprints monorepo.
+
+set -e
+
+OPENCLAW_VERSION="main" # Or a specific tag like "v1.0.0"
+TARGET_DIR="./external/openclaw"
+
+echo "🚀 Preparing OpenClaw for packaging..."
+
+# 1. Clean up existing target
+if [ -d "$TARGET_DIR" ]; then
+    echo "⚠️ Removing existing OpenClaw directory..."
+    rm -rf "$TARGET_DIR"
+fi
+
+# 2. Clone OpenClaw
+echo "📥 Cloning OpenClaw ($OPENCLAW_VERSION)..."
+git clone --depth 1 -b $OPENCLAW_VERSION https://github.com/openclaw/openclaw.git "$TARGET_DIR"
+
+# 3. Build OpenClaw
+echo "📦 Building OpenClaw..."
+cd "$TARGET_DIR"
+
+# Ensure pnpm is available
+if ! command -v pnpm &> /dev/null; then
+    echo "📦 Installing pnpm..."
+    npm install -g pnpm || sudo npm install -g pnpm
+fi
+
+# Detect Bun path for sudo environments
+BUN_BIN=$(command -v bun || echo "$HOME/.bun/bin/bun")
+
+if [ ! -f "$BUN_BIN" ]; then
+    echo "🛑 Bun not found! Please install Bun first."
+    exit 1
+fi
+
+echo "Using pnpm for installation..."
+pnpm install
+pnpm run build
+
+# 4. Extract Version
+echo "🔍 Extracting OpenClaw version..."
+OC_VERSION=$(node -e "console.log(require('./package.json').version)")
+echo "Found version: $OC_VERSION"
+
+# 5. Build Docker Image
+echo "🐳 Building Docker image openclaw:local..."
+docker build -t openclaw:local .
+
+# Verify image exists
+docker image inspect openclaw:local >/dev/null || exit 1
+
+# 6. sync with database
+echo "🔄 Updating database registry..."
+cd ../..
+bun run scripts/supabase-utils/sync-framework.ts openclaw "$OC_VERSION" success "Modular setup-frameworks build"
+
+# 7. Clean up
+echo "🧹 Cleaning up..."
+rm -rf "$TARGET_DIR"
+
+echo "✅ OpenClaw image is ready and registered!"
