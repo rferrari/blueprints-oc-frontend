@@ -67,18 +67,20 @@ function CollapsibleCard({ title, icon, children, defaultOpen = false, badge }: 
     );
 }
 
+type TabType = 'agent' | 'security' | 'billing' | 'raw';
+
 function SettingsContent() {
     const { user, signOut } = useAuth();
     const { agent, loading: agentLoading, refetch } = useAgent();
     const { showNotification } = useNotification();
 
+    const [activeTab, setActiveTab] = useState<TabType>('agent');
     const [agentName, setAgentName] = useState('');
     const [systemPrompt, setSystemPrompt] = useState('');
     const [saving, setSaving] = useState(false);
     const [agentToggling, setAgentToggling] = useState(false);
     const [apiKey, setApiKey] = useState('');
     const [apiKeyStatus, setApiKeyStatus] = useState<'configured' | 'missing'>('missing');
-    const [isEditingJson, setIsEditingJson] = useState(false);
     const [jsonContent, setJsonContent] = useState('');
 
     const supabase = createClient();
@@ -188,7 +190,6 @@ function SettingsContent() {
 
             showNotification('Configuration updated via JSON', 'success');
             refetch();
-            setIsEditingJson(false);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to save JSON';
             showNotification(message, 'error');
@@ -211,119 +212,93 @@ function SettingsContent() {
     return (
         <div className="flex flex-col h-[100dvh]">
             {/* Header */}
-            <header className="flex-shrink-0 px-4 py-4 border-b border-white/5 bg-background/80 backdrop-blur-xl pt-[calc(1rem+var(--safe-area-top))]">
-                <div className="flex items-center gap-3">
+            <header className="flex-shrink-0 px-4 pt-4 border-b border-white/5 bg-background/80 backdrop-blur-xl pt-[calc(1rem+var(--safe-area-top))]">
+                <div className="flex items-center gap-3 mb-4 px-2">
                     <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
                         <SettingsIcon size={18} className="text-primary" />
                     </div>
                     <h1 className="text-lg font-black tracking-tight">Settings</h1>
                 </div>
+
+                {/* Tab Navigation */}
+                <div className="flex overflow-x-auto no-scrollbar gap-1 px-1 pb-2">
+                    {[
+                        { id: 'agent', label: 'Agent', icon: <User size={14} /> },
+                        { id: 'security', label: 'Security', icon: <Shield size={14} /> },
+                        { id: 'billing', label: 'Billing', icon: <CreditCard size={14} /> },
+                        { id: 'raw', label: 'Raw Config', icon: <Code size={14} /> },
+                    ].map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id as TabType)}
+                            className={cn(
+                                'flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest whitespace-nowrap transition-all flex-shrink-0',
+                                activeTab === tab.id
+                                    ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                                    : 'text-muted-foreground hover:bg-white/5'
+                            )}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
             </header>
 
             {/* Content */}
-            <main className="flex-1 overflow-y-auto scroll-smooth-mobile px-4 py-5 space-y-3">
-                {/* Agent Control */}
-                <div className="glass-card rounded-2xl overflow-hidden p-5 flex items-center justify-between border border-primary/10 bg-white/[0.02]">
-                    <div className="flex items-center gap-3">
-                        <div className={cn(
-                            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner",
-                            (agent.agent_desired_state?.[0]?.enabled)
-                                ? "bg-green-500/10 text-green-500 border border-green-500/20"
-                                : "bg-red-500/10 text-red-500 border border-red-500/20"
-                        )}>
-                            <Power size={20} />
-                        </div>
-                        <div>
-                            <p className="font-bold text-sm">Agent Power</p>
-                            <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
-                                <span className={cn(
-                                    "w-1.5 h-1.5 rounded-full inline-block",
-                                    agent.agent_actual_state?.status === 'running' ? "bg-green-500 animate-pulse" : "bg-muted-foreground/50"
-                                )} />
-                                {agent.agent_actual_state?.status || 'stopped'}
-                            </p>
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={handleToggleAgent}
-                        disabled={agentToggling}
-                        className={cn(
-                            "px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2",
-                            (agent.agent_desired_state?.[0]?.enabled)
-                                ? "bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20"
-                                : "bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90"
-                        )}
-                    >
-                        {agentToggling ? (
-                            <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                            agent.agent_desired_state?.[0]?.enabled ? (
-                                <><Square size={14} fill="currentColor" /> Stop Agent</>
-                            ) : (
-                                <><Play size={14} fill="currentColor" /> Start Agent</>
-                            )
-                        )}
-                    </button>
-                </div>
-
-                {/* Mode Toggle */}
-                <div className="flex bg-white/5 p-1 rounded-xl gap-1">
-                    <button
-                        onClick={() => setIsEditingJson(false)}
-                        className={cn(
-                            "flex-1 py-2 rounded-lg text-[10px] uppercase font-black tracking-widest transition-all",
-                            !isEditingJson ? "bg-primary text-white shadow-lg" : "text-muted-foreground hover:bg-white/5"
-                        )}
-                    >
-                        Standard Mode
-                    </button>
-                    <button
-                        onClick={() => setIsEditingJson(true)}
-                        className={cn(
-                            "flex-1 py-2 rounded-lg text-[10px] uppercase font-black tracking-widest transition-all",
-                            isEditingJson ? "bg-primary text-white shadow-lg" : "text-muted-foreground hover:bg-white/5"
-                        )}
-                    >
-                        JSON Mode
-                    </button>
-                </div>
-
-                {isEditingJson ? (
-                    <CollapsibleCard title="Raw Configuration Editor" icon={<Code size={18} />} defaultOpen>
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                                    Agent JSON
-                                </label>
-                                <textarea
-                                    value={jsonContent}
-                                    onChange={(e) => setJsonContent(e.target.value)}
-                                    placeholder="{}"
-                                    rows={15}
-                                    className="w-full px-4 py-3 rounded-xl bg-black font-mono text-[11px] border border-white/10 text-green-400 placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all resize-y"
-                                />
+            <main className="flex-1 overflow-y-auto scroll-smooth-mobile px-4 py-5 space-y-4 pb-24">
+                {activeTab === 'agent' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
+                        {/* Agent Control */}
+                        <div className="glass-card rounded-2xl overflow-hidden p-5 flex items-center justify-between border border-primary/10 bg-white/[0.02]">
+                            <div className="flex items-center gap-3">
+                                <div className={cn(
+                                    "w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner",
+                                    (agent.agent_desired_state?.[0]?.enabled)
+                                        ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                                        : "bg-red-500/10 text-red-500 border border-red-500/20"
+                                )}>
+                                    <Power size={20} />
+                                </div>
+                                <div>
+                                    <p className="font-bold text-sm">Agent Power</p>
+                                    <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                        <span className={cn(
+                                            "w-1.5 h-1.5 rounded-full inline-block",
+                                            agent.agent_actual_state?.status === 'running' ? "bg-green-500 animate-pulse" : "bg-muted-foreground/50"
+                                        )} />
+                                        {agent.agent_actual_state?.status || 'stopped'}
+                                    </p>
+                                </div>
                             </div>
 
                             <button
-                                onClick={handleSaveJson}
-                                disabled={saving}
-                                className="w-full py-3 rounded-xl bg-primary hover:opacity-90 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                                onClick={handleToggleAgent}
+                                disabled={agentToggling}
+                                className={cn(
+                                    "px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2",
+                                    (agent.agent_desired_state?.[0]?.enabled)
+                                        ? "bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20"
+                                        : "bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90"
+                                )}
                             >
-                                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                                Save JSON Config
+                                {agentToggling ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                    agent.agent_desired_state?.[0]?.enabled ? (
+                                        <><Square size={14} fill="currentColor" /> Stop Agent</>
+                                    ) : (
+                                        <><Play size={14} fill="currentColor" /> Start Agent</>
+                                    )
+                                )}
                             </button>
                         </div>
-                    </CollapsibleCard>
-                ) : (
-                    <>
-                        {/* Agent Configuration */}
-                        <CollapsibleCard title="Agent Configuration" icon={<User size={18} />} defaultOpen>
+
+                        {/* Basic Info */}
+                        <CollapsibleCard title="Agent Information" icon={<User size={18} />} defaultOpen>
                             <div className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                                        Agent Name
-                                    </label>
+                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Agent Name</label>
                                     <input
                                         type="text"
                                         value={agentName}
@@ -334,14 +309,12 @@ function SettingsContent() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                                        System Prompt
-                                    </label>
+                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">System Prompt</label>
                                     <textarea
                                         value={systemPrompt}
                                         onChange={(e) => setSystemPrompt(e.target.value)}
                                         placeholder="Define your agent's personality and behavior..."
-                                        rows={4}
+                                        rows={6}
                                         className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all resize-none"
                                     />
                                 </div>
@@ -361,21 +334,23 @@ function SettingsContent() {
                         <CollapsibleCard title="Intelligence" icon={<Brain size={18} />}>
                             <div className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                                        Model
-                                    </label>
+                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Current Model</label>
                                     <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white/50 text-sm">
                                         Using shared OpenRouter — auto-configured
                                     </div>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    Your agent uses our shared AI infrastructure. No configuration needed.
+                                    Your agent uses our shared AI infrastructure by default. Customize this in the Raw Config for advanced setups.
                                 </p>
                             </div>
                         </CollapsibleCard>
+                    </div>
+                )}
 
+                {activeTab === 'security' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
                         {/* Security */}
-                        <CollapsibleCard title="Security" icon={<Shield size={18} />}>
+                        <CollapsibleCard title="Environment Security" icon={<Shield size={18} />} defaultOpen>
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10">
                                     <div>
@@ -383,17 +358,17 @@ function SettingsContent() {
                                         <p className="text-xs text-muted-foreground">Agent runs in isolated environment</p>
                                     </div>
                                     <div className="w-10 h-6 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-end px-1">
-                                        <div className="w-4 h-4 rounded-full bg-green-400" />
+                                        <div className="w-4 h-4 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
                                     </div>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    Your agent runs in a secure sandbox. This is the only mode available for now.
+                                    Your agent is currently isolated from the host system for maximum security.
                                 </p>
                             </div>
                         </CollapsibleCard>
 
                         {/* API Key (BYOK) */}
-                        <CollapsibleCard title="API Key" icon={<Key size={18} />} badge="Phase 2">
+                        <CollapsibleCard title="Personal API Keys" icon={<Key size={18} />} badge="Advanced">
                             <div className="space-y-4">
                                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10">
                                     <div className={cn(
@@ -403,23 +378,21 @@ function SettingsContent() {
                                             : 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.5)]'
                                     )} />
                                     <span className="text-sm">
-                                        {apiKeyStatus === 'configured' ? 'Key configured' : 'No key configured'}
+                                        {apiKeyStatus === 'configured' ? 'Key configured' : 'Using Shared Infrastructure'}
                                     </span>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                                        OpenRouter API Key
-                                    </label>
+                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">OpenRouter API Key</label>
                                     <input
                                         type="password"
                                         value={apiKey}
                                         onChange={(e) => setApiKey(e.target.value)}
                                         placeholder="sk-or-..."
-                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono"
                                     />
                                     <p className="text-xs text-muted-foreground">
-                                        Paste your OpenRouter API key to power your agent with your own credits.
+                                        Providing your own key bypasses shared credit usage and platform limits.
                                     </p>
                                 </div>
 
@@ -428,59 +401,98 @@ function SettingsContent() {
                                     disabled={saving || !apiKey}
                                     className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    Save Key
+                                    Update Key
                                 </button>
                             </div>
                         </CollapsibleCard>
+                    </div>
+                )}
 
-                        {/* Billing / Credits */}
-                        <CollapsibleCard title="Billing & Credits" icon={<CreditCard size={18} />}>
-                            <div className="space-y-4">
-                                <div className="text-center py-4">
-                                    <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Current Balance</p>
-                                    <div className="flex items-baseline justify-center gap-1">
-                                        <span className="text-3xl font-black">$0</span>
-                                        <span className="text-lg text-muted-foreground">.00</span>
+                {activeTab === 'billing' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
+                        <CollapsibleCard title="Wallet & Usage" icon={<CreditCard size={18} />} defaultOpen>
+                            <div className="space-y-6">
+                                <div className="text-center py-4 bg-white/5 rounded-2xl border border-white/5">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">Available Credits</p>
+                                    <div className="flex items-baseline justify-center gap-0.5">
+                                        <span className="text-4xl font-black text-white">$0</span>
+                                        <span className="text-xl font-black text-muted-foreground">.00</span>
                                     </div>
                                 </div>
 
-                                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
-                                    <AlertTriangle size={18} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+                                <div className="flex items-start gap-3 px-4 py-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+                                    <AlertTriangle size={20} className="text-yellow-400 flex-shrink-0 mt-0.5" />
                                     <div>
-                                        <p className="text-sm font-semibold text-yellow-200">You&apos;re out of credits</p>
-                                        <p className="text-xs text-yellow-200/60 mt-0.5">
-                                            Add funds to keep your agent running.
+                                        <p className="text-sm font-bold text-yellow-200">Shared Credits Exhausted</p>
+                                        <p className="text-xs text-yellow-200/60 mt-1 leading-relaxed">
+                                            Your agent will pause if it reaches the usage limit. Add funds to ensure uninterrupted service.
                                         </p>
                                     </div>
                                 </div>
 
-                                <button className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 active:scale-[0.98] text-white font-black text-sm uppercase tracking-widest transition-all shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2">
-                                    <Zap size={18} />
-                                    Top Up — Minimum $10
+                                <button className="w-full py-4 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 hover:opacity-90 active:scale-[0.98] text-white font-black text-[11px] uppercase tracking-[0.1em] transition-all shadow-xl shadow-purple-500/20 flex items-center justify-center gap-2">
+                                    <Zap size={16} fill="white" />
+                                    Top Up Credits
                                 </button>
 
-                                <p className="text-xs text-center text-muted-foreground">
-                                    Secure payment via Stripe
+                                <p className="text-[10px] text-center text-muted-foreground uppercase font-black tracking-widest">
+                                    Protected by Stripe • No monthly fees
                                 </p>
                             </div>
                         </CollapsibleCard>
-
-                        <div className="pt-2 pb-8">
-                            <button
-                                onClick={signOut}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-red-400 hover:bg-red-400/10 active:scale-[0.98] text-sm font-bold uppercase tracking-widest transition-all"
-                            >
-                                <LogOut size={16} />
-                                Sign Out
-                            </button>
-                            {user && (
-                                <p className="text-center text-[10px] text-muted-foreground mt-3">
-                                    {user.email}
-                                </p>
-                            )}
-                        </div>
-                    </>
+                    </div>
                 )}
+
+                {activeTab === 'raw' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
+                        <CollapsibleCard title="Raw Configuration (JSON)" icon={<Code size={18} />} defaultOpen>
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Agent Config</label>
+                                        <span className="text-[9px] uppercase font-black text-primary px-2 py-0.5 rounded bg-primary/10 tracking-widest">Expert Mode</span>
+                                    </div>
+                                    <textarea
+                                        value={jsonContent}
+                                        onChange={(e) => setJsonContent(e.target.value)}
+                                        placeholder="{}"
+                                        rows={18}
+                                        className="w-full px-4 py-4 rounded-2xl bg-black font-mono text-[11px] border border-white/10 text-green-400 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all resize-y shadow-inner leading-relaxed"
+                                    />
+                                    <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 px-1 py-1 italic">
+                                        <AlertTriangle size={10} className="text-yellow-500" />
+                                        Advanced edits can cause initialization errors. Use with caution.
+                                    </p>
+                                </div>
+
+                                <button
+                                    onClick={handleSaveJson}
+                                    disabled={saving}
+                                    className="w-full py-4 rounded-2xl bg-primary hover:opacity-90 active:scale-[0.98] text-white font-black text-[11px] uppercase tracking-widest transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                    Sync Configuration
+                                </button>
+                            </div>
+                        </CollapsibleCard>
+                    </div>
+                )}
+
+                {/* Account Section - Fixed at bottom of main */}
+                <div className="pt-4 border-t border-white/5">
+                    <button
+                        onClick={signOut}
+                        className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl text-red-400 hover:bg-red-400/10 active:scale-[0.98] text-[11px] font-black uppercase tracking-widest transition-all"
+                    >
+                        <LogOut size={16} />
+                        Terminate Session
+                    </button>
+                    {user && (
+                        <p className="text-center text-[9px] font-black tracking-widest text-muted-foreground mt-2 uppercase">
+                            Session: {user.email}
+                        </p>
+                    )}
+                </div>
             </main>
 
             <BottomNav />
