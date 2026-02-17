@@ -95,7 +95,7 @@ export function useAgent(): UseAgentReturn {
             // 3. Auto-creation sequence
             console.log('Initiating agent creation flow');
 
-            // Step A: Get default blueprint ID
+            // Step A: Get default blueprint ID and its config
             const { data: blueprintSetting } = await supabase
                 .from('system_settings')
                 .select('value')
@@ -103,6 +103,15 @@ export function useAgent(): UseAgentReturn {
                 .single();
 
             const blueprintId = (blueprintSetting?.value as string) || '2d25b0f6-fc05-4cb9-882a-f5fa05ec54da';
+
+            // Fetch the actual blueprint config
+            const { data: blueprint } = await supabase
+                .from('blueprints')
+                .select('config')
+                .eq('id', blueprintId)
+                .single();
+
+            const blueprintConfig = blueprint?.config || {};
 
             // Step B: Ensure project exists
             let projectId: string;
@@ -117,13 +126,35 @@ export function useAgent(): UseAgentReturn {
                 projectId = newProject.id;
             }
 
-            // Step C: Create Agent
+            // Step C: Create Agent with Blueprint Config
             console.log('Creating agent in project:', projectId);
             const newAgent = await apiPost<Agent>(`/agents/project/${projectId}`, {
-                name: 'OpenClaw Persona',
+                name: 'OpenClaw Agent',
                 framework: 'openclaw',
-                templateId: blueprintId
+                templateId: blueprintId,
+                configTemplate: blueprintConfig // Pass the blueprint config here
             });
+
+
+            // Step C.1: Lease an API Key (Managed Key)
+            try {
+                console.log('Leasing managed key for agent:', newAgent.id);
+                await apiPost('/managed-keys/lease', {
+                    provider: 'openrouter',
+                    agent_id: newAgent.id,
+                    framework: 'openclaw'
+                });
+            } catch (leaseError) {
+                console.error('Failed to lease managed key:', leaseError);
+                // We don't stop the flow, but the agent might not work without a key
+            }
+
+            // Step C.2: Enable the agent (Auto-start)
+            console.log('Enabling agent...');
+            await supabase
+                .from('agent_desired_state')
+                .update({ enabled: true })
+                .eq('agent_id', newAgent.id);
 
             // Step D: Update metadata
             await supabase.auth.updateUser({
