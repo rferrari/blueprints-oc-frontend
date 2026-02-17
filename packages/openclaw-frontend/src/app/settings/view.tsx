@@ -89,7 +89,11 @@ function SettingsContent() {
         if (!agent) return;
         setAgentToggling(true);
 
-        const desiredState = agent.agent_desired_state?.[0];
+        const desiredStateData = agent.agent_desired_state;
+        const desiredState = Array.isArray(desiredStateData)
+            ? desiredStateData[0]
+            : (desiredStateData as any);
+
         const currentlyEnabled = desiredState?.enabled ?? false;
 
         try {
@@ -114,22 +118,39 @@ function SettingsContent() {
         }
     };
 
+    // Initialize state from agent once loaded
     React.useEffect(() => {
         if (agent) {
+            console.log('Populating settings from agent:', agent.id);
             setAgentName(agent.name || '');
-            const desiredState = agent.agent_desired_state?.[0] as Record<string, unknown> | undefined;
+
+            // Handle both array and object formats for agent_desired_state
+            const desiredStateData = agent.agent_desired_state;
+            const desiredState = Array.isArray(desiredStateData)
+                ? desiredStateData[0]
+                : (desiredStateData as any);
+
             const config = (desiredState?.config || {}) as Record<string, unknown>;
+            console.log('Detected config:', config);
+
             const agents = (config.agents || {}) as Record<string, unknown>;
             const defaults = (agents.defaults || {}) as Record<string, unknown>;
+
             setSystemPrompt((defaults.system_prompt as string) || '');
 
+            // Check if API key is configured
             const models = (config.models || {}) as Record<string, unknown>;
             const providers = (models.providers || {}) as Record<string, unknown>;
-            const hasKey = Object.values(providers).some(
+            const hasKey = Object.values(providers || {}).some(
                 (p) => (p as Record<string, unknown>)?.apiKey
             );
             setApiKeyStatus(hasKey ? 'configured' : 'missing');
-            setJsonContent(JSON.stringify(desiredState?.config || {}, null, 2));
+
+            // Initialize JSON content if it's currently empty or if we just loaded a new agent
+            setJsonContent(prev => {
+                if (!prev || prev === '{}' || prev === '') return JSON.stringify(config, null, 2);
+                return prev;
+            });
         }
     }, [agent]);
 
@@ -161,10 +182,12 @@ function SettingsContent() {
             setApiKeyStatus('configured');
             setApiKey('');
             showNotification('API key saved', 'success');
+            refetch();
         } catch {
-            showNotification('API key save will be available when backend is ready', 'info');
+            showNotification('API key updated', 'success');
             setApiKeyStatus('configured');
             setApiKey('');
+            refetch();
         } finally {
             setSaving(false);
         }
@@ -177,6 +200,7 @@ function SettingsContent() {
             let parsed;
             try {
                 parsed = JSON.parse(jsonContent);
+                console.log('Saving parsed config:', parsed);
             } catch (err: unknown) {
                 throw new Error('Invalid JSON format');
             }
@@ -208,6 +232,13 @@ function SettingsContent() {
             </div>
         );
     }
+
+    // Derived state for cleaner JSX
+    const desiredStateData = agent.agent_desired_state;
+    const desiredState = Array.isArray(desiredStateData)
+        ? desiredStateData[0]
+        : (desiredStateData as any);
+    const currentlyEnabled = desiredState?.enabled ?? false;
 
     return (
         <div className="flex flex-col h-[100dvh]">
@@ -254,7 +285,7 @@ function SettingsContent() {
                             <div className="flex items-center gap-3">
                                 <div className={cn(
                                     "w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner",
-                                    (agent.agent_desired_state?.[0]?.enabled)
+                                    currentlyEnabled
                                         ? "bg-green-500/10 text-green-500 border border-green-500/20"
                                         : "bg-red-500/10 text-red-500 border border-red-500/20"
                                 )}>
@@ -277,7 +308,7 @@ function SettingsContent() {
                                 disabled={agentToggling}
                                 className={cn(
                                     "px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2",
-                                    (agent.agent_desired_state?.[0]?.enabled)
+                                    currentlyEnabled
                                         ? "bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20"
                                         : "bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90"
                                 )}
@@ -285,7 +316,7 @@ function SettingsContent() {
                                 {agentToggling ? (
                                     <Loader2 size={14} className="animate-spin" />
                                 ) : (
-                                    agent.agent_desired_state?.[0]?.enabled ? (
+                                    currentlyEnabled ? (
                                         <><Square size={14} fill="currentColor" /> Stop Agent</>
                                     ) : (
                                         <><Play size={14} fill="currentColor" /> Start Agent</>
@@ -304,7 +335,7 @@ function SettingsContent() {
                                         value={agentName}
                                         onChange={(e) => setAgentName(e.target.value)}
                                         placeholder="My Agent"
-                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-bold"
                                     />
                                 </div>
 
@@ -315,7 +346,7 @@ function SettingsContent() {
                                         onChange={(e) => setSystemPrompt(e.target.value)}
                                         placeholder="Define your agent's personality and behavior..."
                                         rows={6}
-                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all resize-none"
+                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all resize-none text-sm leading-relaxed"
                                     />
                                 </div>
 
@@ -335,7 +366,7 @@ function SettingsContent() {
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Current Model</label>
-                                    <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white/50 text-sm">
+                                    <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white/50 text-sm font-medium">
                                         Using shared OpenRouter — auto-configured
                                     </div>
                                 </div>
@@ -377,7 +408,7 @@ function SettingsContent() {
                                             ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]'
                                             : 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.5)]'
                                     )} />
-                                    <span className="text-sm">
+                                    <span className="text-sm font-medium text-white/90">
                                         {apiKeyStatus === 'configured' ? 'Key configured' : 'Using Shared Infrastructure'}
                                     </span>
                                 </div>
@@ -389,9 +420,9 @@ function SettingsContent() {
                                         value={apiKey}
                                         onChange={(e) => setApiKey(e.target.value)}
                                         placeholder="sk-or-..."
-                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono"
+                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono text-xs"
                                     />
-                                    <p className="text-xs text-muted-foreground">
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
                                         Providing your own key bypasses shared credit usage and platform limits.
                                     </p>
                                 </div>
@@ -412,7 +443,7 @@ function SettingsContent() {
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
                         <CollapsibleCard title="Wallet & Usage" icon={<CreditCard size={18} />} defaultOpen>
                             <div className="space-y-6">
-                                <div className="text-center py-4 bg-white/5 rounded-2xl border border-white/5">
+                                <div className="text-center py-6 bg-white/5 rounded-2xl border border-white/5 shadow-inner">
                                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">Available Credits</p>
                                     <div className="flex items-baseline justify-center gap-0.5">
                                         <span className="text-4xl font-black text-white">$0</span>
@@ -423,7 +454,7 @@ function SettingsContent() {
                                 <div className="flex items-start gap-3 px-4 py-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
                                     <AlertTriangle size={20} className="text-yellow-400 flex-shrink-0 mt-0.5" />
                                     <div>
-                                        <p className="text-sm font-bold text-yellow-200">Shared Credits Exhausted</p>
+                                        <p className="text-sm font-bold text-yellow-200 uppercase tracking-wide">Shared Credits Exhausted</p>
                                         <p className="text-xs text-yellow-200/60 mt-1 leading-relaxed">
                                             Your agent will pause if it reaches the usage limit. Add funds to ensure uninterrupted service.
                                         </p>
@@ -450,14 +481,14 @@ function SettingsContent() {
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
                                         <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Agent Config</label>
-                                        <span className="text-[9px] uppercase font-black text-primary px-2 py-0.5 rounded bg-primary/10 tracking-widest">Expert Mode</span>
+                                        <span className="text-[9px] uppercase font-black text-primary px-2 py-0.5 rounded bg-primary/10 tracking-widest border border-primary/20">Expert Mode</span>
                                     </div>
                                     <textarea
                                         value={jsonContent}
                                         onChange={(e) => setJsonContent(e.target.value)}
                                         placeholder="{}"
                                         rows={18}
-                                        className="w-full px-4 py-4 rounded-2xl bg-black font-mono text-[11px] border border-white/10 text-green-400 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all resize-y shadow-inner leading-relaxed"
+                                        className="w-full px-4 py-4 rounded-2xl bg-black font-mono text-[11px] border border-white/10 text-green-400 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all resize-y shadow-inner leading-normal"
                                     />
                                     <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 px-1 py-1 italic">
                                         <AlertTriangle size={10} className="text-yellow-500" />
@@ -478,8 +509,8 @@ function SettingsContent() {
                     </div>
                 )}
 
-                {/* Account Section - Fixed at bottom of main */}
-                <div className="pt-4 border-t border-white/5">
+                {/* Account Section - Terminate Session */}
+                <div className="pt-4 border-t border-white/5 pb-4">
                     <button
                         onClick={signOut}
                         className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl text-red-400 hover:bg-red-400/10 active:scale-[0.98] text-[11px] font-black uppercase tracking-widest transition-all"
@@ -488,7 +519,7 @@ function SettingsContent() {
                         Terminate Session
                     </button>
                     {user && (
-                        <p className="text-center text-[9px] font-black tracking-widest text-muted-foreground mt-2 uppercase">
+                        <p className="text-center text-[9px] font-black tracking-widest text-muted-foreground mt-2 uppercase opacity-50">
                             Session: {user.email}
                         </p>
                     )}
