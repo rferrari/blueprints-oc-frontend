@@ -40,3 +40,4 @@ workspaces/
 packages/worker/openclaw/
 packages/backend/
 packages/worker/
+packages/frontend-original/

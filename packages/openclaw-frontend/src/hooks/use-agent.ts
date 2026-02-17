@@ -111,7 +111,17 @@ export function useAgent(): UseAgentReturn {
                 .eq('id', blueprintId)
                 .single();
 
-            const blueprintConfig = blueprint?.config || {};
+            const blueprintConfig = JSON.parse(JSON.stringify(blueprint?.config || {}));
+
+            // Step A.1: Ensure Gateway Auth (Critical for startup)
+            if (!blueprintConfig.gateway) blueprintConfig.gateway = {};
+            if (!blueprintConfig.gateway.auth || (!blueprintConfig.gateway.auth.token && !blueprintConfig.gateway.auth.password)) {
+                console.log('Generating missing gateway auth for new agent');
+                blueprintConfig.gateway.auth = {
+                    mode: 'token',
+                    token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+                };
+            }
 
             // Step B: Ensure project exists
             let projectId: string;
