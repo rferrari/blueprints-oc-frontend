@@ -171,7 +171,7 @@ function SettingsContent() {
         }
     };
 
-    if (agentLoading) {
+    if (agentLoading || !agent) {
         return (
             <div className="flex flex-col h-[100dvh]">
                 <div className="flex-1 flex items-center justify-center">
