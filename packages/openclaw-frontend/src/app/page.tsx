@@ -1,9 +1,11 @@
 'use client';
 
 import React, { Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { useAgent } from '@/hooks/use-agent';
+import { cn } from '@/lib/utils';
 import { ChatScreen } from '@/components/chat-screen';
 import { TerminalScreen } from '@/components/terminal-screen';
 import { BottomNav } from '@/components/bottom-nav';
@@ -116,14 +118,39 @@ function HomeContent() {
                     </div>
                     <div>
                         <h1 className="text-sm font-black tracking-tight leading-tight">{agent.name}</h1>
-                        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">Online</p>
+                        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">
+                            {agent.agent_actual_state?.status === 'running' ? 'Online' : (agent.agent_actual_state?.status || 'Stopped')}
+                        </p>
                     </div>
                 </div>
-                <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
+                <div className={cn(
+                    "w-2 h-2 rounded-full",
+                    agent.agent_actual_state?.status === 'running'
+                        ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]"
+                        : "bg-red-400/50"
+                )} />
             </header>
 
             {/* Main Content */}
             <main className="flex-1 min-h-0 relative">
+                {/* Status Overlay for non-running state */}
+                {agent.agent_actual_state?.status !== 'running' && (
+                    <div className="absolute inset-0 z-50 bg-background/60 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
+                        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+                            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                        </div>
+                        <h2 className="text-xl font-black uppercase tracking-tighter mb-2 italic">Waiting for Agent</h2>
+                        <p className="text-sm text-muted-foreground max-w-[240px] mb-8 font-medium">
+                            Your agent is currently {agent.agent_actual_state?.status || 'stopped'}. Please ensure it's started in settings.
+                        </p>
+                        <Link
+                            href="/settings"
+                            className="px-6 py-3 rounded-2xl bg-primary text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                        >
+                            Open Settings
+                        </Link>
+                    </div>
+                )}
                 <div className={currentView === 'chat' ? 'h-full' : 'hidden h-full'}>
                     <ChatScreen agent={agent} />
                 </div>

@@ -39,13 +39,13 @@ export function useAgent(): UseAgentReturn {
     const [error, setError] = useState<string | null>(null);
     const supabase = createClient();
 
-    const fetchOrCreateAgent = useCallback(async () => {
+    const fetchOrCreateAgent = useCallback(async (silent = false) => {
         if (!user) {
             setLoading(false);
             return;
         }
 
-        setLoading(true);
+        if (!silent) setLoading(true);
         setError(null);
 
         try {
@@ -206,7 +206,17 @@ export function useAgent(): UseAgentReturn {
 
     useEffect(() => {
         fetchOrCreateAgent();
-    }, [fetchOrCreateAgent]);
+
+        // Polling for status updates if the agent exists
+        const interval = setInterval(() => {
+            if (agent && !loading) {
+                // Background refresh only
+                fetchOrCreateAgent(true);
+            }
+        }, 5000); // Poll every 5 seconds
+
+        return () => clearInterval(interval);
+    }, [fetchOrCreateAgent, agent, loading]);
 
     return { agent, loading, error, refetch: fetchOrCreateAgent };
 }
