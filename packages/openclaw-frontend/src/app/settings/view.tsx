@@ -5,70 +5,34 @@ import { useAuth } from '@/components/auth-provider';
 import { useAgent } from '@/hooks/use-agent';
 import { useNotification } from '@/components/notification-provider';
 import { SecurityLevel, Profile } from '@eliza-manager/shared';
+import { isModelCompatible } from '@eliza-manager/shared';
+export interface Model {
+    id: string;
+    name: string;
+    isCompatible: boolean;
+}
 import { BottomNav } from '@/components/bottom-nav';
 import { apiPatch, apiFetch } from '@/lib/api';
 import { createClient } from '@/lib/supabase';
 import {
     Settings as SettingsIcon,
-    ChevronDown,
-    ChevronUp,
     Loader2,
     User,
-    Brain,
     Shield,
     Key,
     CreditCard,
     LogOut,
-    AlertTriangle,
-    Zap,
-    Power,
-    Play,
-    Square,
     Code,
     Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TabAgent } from './components/tab-agent';
+import { TabSecurity } from './components/tab-security';
+import { TabKeys } from './components/tab-keys';
+import { TabBilling } from './components/tab-billing';
+import { TabRaw } from './components/tab-raw';
 
-interface CollapsibleCardProps {
-    title: string;
-    icon: React.ReactNode;
-    children: React.ReactNode;
-    defaultOpen?: boolean;
-    badge?: string;
-}
-
-function CollapsibleCard({ title, icon, children, defaultOpen = false, badge }: CollapsibleCardProps) {
-    const [open, setOpen] = useState(defaultOpen);
-
-    return (
-        <div className="glass-card rounded-2xl overflow-hidden">
-            <button
-                onClick={() => setOpen(!open)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left active:bg-white/5 transition-colors"
-            >
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center text-primary">
-                        {icon}
-                    </div>
-                    <span className="font-bold text-sm">{title}</span>
-                    {badge && (
-                        <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                            {badge}
-                        </span>
-                    )}
-                </div>
-                {open ? <ChevronUp size={18} className="text-muted-foreground" /> : <ChevronDown size={18} className="text-muted-foreground" />}
-            </button>
-            {open && (
-                <div className="px-5 pb-5 pt-1 border-t border-white/5 animate-in slide-in-from-top-1 fade-in duration-200">
-                    {children}
-                </div>
-            )}
-        </div>
-    );
-}
-
-type TabType = 'agent' | 'security' | 'billing' | 'raw';
+type TabType = 'agent' | 'security' | 'keys' | 'billing' | 'raw';
 
 function SettingsContent() {
     const { user, signOut } = useAuth();
@@ -92,7 +56,76 @@ function SettingsContent() {
         hasLease: boolean;
     } | null>(null);
 
+    // AI Provider/Model state
+    const [provider, setProvider] = useState<string>('openrouter');
+    const [modelId, setModelId] = useState<string>('');
+    const [availableModels, setAvailableModels] = useState<Model[]>([]);
+    const [fetchingModels, setFetchingModels] = useState(false);
+    const [modelError, setModelError] = useState<string | null>(null);
+
     const supabase = createClient();
+
+    const fetchModels = async (prov: string, token: string, currentModelId?: string) => {
+        if (!token && prov !== 'blueprint_shared') return;
+        setFetchingModels(true);
+        setModelError(null);
+        try {
+            let url = '';
+            if (prov === 'venice') url = 'https://api.venice.ai/api/v1/models';
+            else if (prov === 'openai') url = 'https://api.openai.com/v1/models';
+            else if (prov === 'anthropic') url = 'https://api.anthropic.com/v1/models';
+            else if (prov === 'groq') url = 'https://api.groq.com/openai/v1/models';
+            else if (prov === 'deepseek') url = 'https://api.deepseek.com/models';
+            else if (prov === 'mistral') url = 'https://api.mistral.ai/v1/models';
+
+            if (!url) {
+                setFetchingModels(false);
+                return;
+            }
+
+            const headers: Record<string, string> = {};
+            if (prov === 'anthropic') {
+                headers['x-api-key'] = token;
+                headers['anthropic-version'] = '2023-06-01';
+            } else {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            const res = await fetch(url, { headers });
+            if (!res.ok) throw new Error(`Failed to fetch models: ${res.statusText}`);
+            const data = await res.json();
+
+            if (data?.data && Array.isArray(data.data)) {
+                let models: Model[] = [];
+                if (prov === 'venice') {
+                    models = data.data.map((m: any) => ({
+                        id: m.id,
+                        name: m.model_spec?.name || m.id,
+                        isCompatible: m.model_spec?.capabilities?.supportsFunctionCalling === true
+                    }));
+                } else {
+                    models = data.data.map((m: any) => ({
+                        id: m.id,
+                        name: m.id,
+                        isCompatible: isModelCompatible(m.id)
+                    }));
+                }
+
+                models.sort((a, b) => a.name.localeCompare(b.name));
+                setAvailableModels(models);
+
+                if (!currentModelId || !models.find(m => m.id === currentModelId)) {
+                    const defaultModel = models.find(m => (m.id.includes('70b') || m.id.includes('gpt-4o')) && m.isCompatible) || models.find(m => m.isCompatible) || models[0];
+                    if (defaultModel) setModelId(defaultModel.id);
+                }
+            }
+        } catch (err: unknown) {
+            console.error('Fetch models error:', err);
+            setModelError(err instanceof Error ? err.message : 'Establishment failed');
+        } finally {
+            setFetchingModels(false);
+        }
+    };
 
     const handleToggleAgent = async () => {
         if (!agent) return;
@@ -195,7 +228,24 @@ function SettingsContent() {
             setJsonContent(JSON.stringify(config, null, 2));
 
             const providers = (config as any).models?.providers || {};
-            const hasKey = !!(providers.openrouter?.apiKey || providers.anthropic?.apiKey || providers.openai?.apiKey);
+
+            // Get current provider and api key
+            const activeProfile = (config as any).auth?.profiles?.['default'];
+            const currentProvider = activeProfile?.provider || 'openrouter';
+            setProvider(currentProvider);
+
+            // Get current model
+            const currentModelFull = (config as any).agents?.defaults?.model?.primary;
+            if (currentModelFull && typeof currentModelFull === 'string') {
+                const parts = currentModelFull.split('/');
+                setModelId(parts.pop() || '');
+            } else {
+                setModelId('');
+            }
+
+            const currentKey = providers[currentProvider]?.apiKey;
+            setApiKey(currentKey || '');
+            const hasKey = !!currentKey;
             setApiKeyStatus(hasKey ? 'configured' : 'missing');
         }
     }, [agent]);
@@ -223,6 +273,7 @@ function SettingsContent() {
             refetch();
         } catch (err: unknown) {
             showNotification('Failed to save', 'error');
+            console.log(err)
         } finally {
             setSaving(false);
         }
@@ -239,32 +290,97 @@ function SettingsContent() {
 
             const currentConfig = (desiredState?.config || {}) as Record<string, any>;
 
-            // OpenClaw config structure for API keys
+            // Model Configuration
+            let actualModelId = modelId || 'gpt-4o';
+            let modelName = 'GPT-4o';
+            let modelApi = 'openai-responses';
+            let baseUrl = 'https://api.openai.com/v1';
+
+            if (provider === 'anthropic') {
+                actualModelId = modelId || 'claude-3-5-sonnet-latest';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'Claude 3.5 Sonnet';
+                modelApi = 'anthropic-messages';
+                baseUrl = 'https://api.anthropic.com';
+            } else if (provider === 'venice') {
+                actualModelId = modelId || 'llama-3.3-70b';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'Venice Model';
+                modelApi = 'openai-completions';
+                baseUrl = 'https://api.venice.ai/api/v1';
+            } else if (provider === 'openai') {
+                actualModelId = modelId || 'gpt-4o';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'OpenAI Model';
+                modelApi = 'openai-responses';
+                baseUrl = 'https://api.openai.com/v1';
+            } else if (provider === 'groq') {
+                actualModelId = modelId || 'llama-3.3-70b-versatile';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'Groq Model';
+                modelApi = 'openai-completions';
+                baseUrl = 'https://api.groq.com/openai/v1';
+            } else if (provider === 'deepseek') {
+                actualModelId = modelId || 'deepseek-chat';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'DeepSeek Model';
+                modelApi = 'openai-completions';
+                baseUrl = 'https://api.deepseek.com';
+            } else if (provider === 'mistral') {
+                actualModelId = modelId || 'mistral-large-latest';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'Mistral Model';
+                modelApi = 'openai-completions';
+                baseUrl = 'https://api.mistral.ai/v1';
+            } else if (provider === 'openrouter') {
+                actualModelId = modelId || 'openrouter/auto';
+                const found = availableModels.find(m => m.id === actualModelId);
+                modelName = found ? found.name : 'OpenRouter Model';
+                modelApi = 'openai-completions';
+                baseUrl = 'https://openrouter.ai/api/v1';
+            }
+
             const newConfig = {
                 ...currentConfig,
-                models: {
-                    ...(currentConfig.models || {}),
-                    providers: {
-                        ...(currentConfig.models?.providers || {}),
-                        openrouter: {
-                            ...(currentConfig.models?.providers?.openrouter || {}),
-                            apiKey: apiKey
-                        }
-                    }
-                },
-                // Also update auth profiles for backward compatibility or different openclaw versions
                 auth: {
                     ...(currentConfig.auth || {}),
                     profiles: {
                         ...(currentConfig.auth?.profiles || {}),
                         default: {
                             ...(currentConfig.auth?.profiles?.default || {}),
-                            provider: 'openrouter',
-                            mode: 'api_key',
-                            key: apiKey
+                            provider: provider,
+                            mode: 'api_key'
                         }
                     }
-                }
+                },
+                models: {
+                    ...(currentConfig.models || {}),
+                    providers: {
+                        ...(currentConfig.models?.providers || {}),
+                        [provider]: {
+                            ...(currentConfig.models?.providers?.[provider] || {}),
+                            apiKey: apiKey || currentConfig.models?.providers?.[provider]?.apiKey || '',
+                            baseUrl,
+                            models: [
+                                { id: actualModelId, name: modelName, api: modelApi, compat: {} }
+                            ]
+                        }
+                    }
+                },
+                agents: {
+                    ...(currentConfig.agents || {}),
+                    defaults: {
+                        ...(currentConfig.agents?.defaults || {}),
+                        model: {
+                            ...(currentConfig.agents?.defaults?.model || {}),
+                            primary: `${provider}/${actualModelId}`
+                        },
+                        models: {
+                            ...(currentConfig.agents?.defaults?.models || {}),
+                            [`${provider}/${actualModelId}`]: {}
+                        }
+                    }
+                },
             };
 
             await apiPatch(`/agents/${agent.id}/config`, {
@@ -322,7 +438,6 @@ function SettingsContent() {
     const desiredState = Array.isArray(desiredStateData)
         ? desiredStateData[0]
         : (desiredStateData as any);
-    const currentlyEnabled = desiredState?.enabled ?? false;
 
     const config = (desiredState?.config || {}) as Record<string, any>;
     const rawGatewayToken = config.gateway?.auth?.token || '';
@@ -354,6 +469,7 @@ function SettingsContent() {
                     {[
                         { id: 'agent', label: 'Agent', icon: <User size={14} /> },
                         { id: 'security', label: 'Security', icon: <Shield size={14} /> },
+                        { id: 'keys', label: 'API Keys', icon: <Key size={14} /> },
                         { id: 'billing', label: 'Billing', icon: <CreditCard size={14} /> },
                         { id: 'raw', label: 'Raw Config', icon: <Code size={14} /> },
                     ].map((tab) => (
@@ -378,389 +494,74 @@ function SettingsContent() {
             <main className="flex-1 overflow-y-auto scroll-smooth-mobile px-4 py-5 space-y-4 pb-24">
                 {activeTab === 'agent' && (
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
-                        {!agent ? (
-                            <div className="glass-card rounded-2xl overflow-hidden p-8 text-center border-2 border-dashed border-primary/20 bg-primary/5">
-                                <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                                    <Brain size={40} className="text-primary animate-pulse" />
-                                </div>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter mb-3 italic">Launch Your neural agent</h2>
-                                <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-8 font-medium leading-relaxed">
-                                    Ready to deploy your customized OpenClaw agent? We'll initialize a secure sandbox environment and link your neural pathways.
-                                </p>
-                                <button
-                                    onClick={handleLaunchAgent}
-                                    disabled={agentToggling}
-                                    className="w-full max-w-xs py-4 rounded-2xl bg-primary text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-primary/30 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 mx-auto"
-                                >
-                                    Launch my agent
-                                </button>
-                            </div>
-                        ) : (agent as any).isPurging ? (
-                            <div className="glass-card rounded-2xl overflow-hidden p-8 text-center border-2 border-dashed border-red-500/20 bg-red-500/5 animate-pulse">
-                                <div className="w-20 h-20 rounded-3xl bg-red-500/10 flex items-center justify-center mx-auto mb-6">
-                                    <Loader2 size={40} className="text-red-500 animate-spin" />
-                                </div>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter mb-3 italic">Decommissioning Agent</h2>
-                                <p className="text-sm text-red-400/80 max-w-sm mx-auto mb-4 font-medium leading-relaxed">
-                                    Finalizing memory purge and dissolving neural pathways. This process cannot be undone.
-                                </p>
-                                <div className="text-[10px] font-black uppercase tracking-widest text-red-400/50">
-                                    Worker Status: Cleaning up Docker & Filesystem...
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {/* Agent Control */}
-                                <div className="glass-card rounded-2xl overflow-hidden p-5 flex items-center justify-between border border-primary/10 bg-white/[0.02]">
-                                    <div className="flex items-center gap-3">
-                                        <div className={cn(
-                                            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner",
-                                            currentlyEnabled
-                                                ? "bg-green-500/10 text-green-500 border border-green-500/20"
-                                                : "bg-red-500/10 text-red-500 border border-red-500/20"
-                                        )}>
-                                            <Power size={20} />
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-sm">Agent Power</p>
-                                            <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
-                                                <span className={cn(
-                                                    "w-1.5 h-1.5 rounded-full inline-block",
-                                                    agent?.agent_actual_state?.status === 'running' ? "bg-green-500 animate-pulse" : "bg-muted-foreground/50"
-                                                )} />
-                                                {agent?.agent_actual_state?.status || 'stopped'}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={handleToggleAgent}
-                                        disabled={agentToggling}
-                                        className={cn(
-                                            "px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2",
-                                            currentlyEnabled
-                                                ? "bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20"
-                                                : "bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90"
-                                        )}
-                                    >
-                                        {agentToggling ? (
-                                            <Loader2 size={14} className="animate-spin" />
-                                        ) : (
-                                            currentlyEnabled ? (
-                                                <><Square size={14} fill="currentColor" /> Stop Agent</>
-                                            ) : (
-                                                <><Play size={14} fill="currentColor" /> Start Agent</>
-                                            )
-                                        )}
-                                    </button>
-                                </div>
-
-                                {/* Basic Info */}
-                                <CollapsibleCard title="Agent Information" icon={<User size={18} />} defaultOpen>
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Agent Name</label>
-                                            <input
-                                                type="text"
-                                                value={agentName}
-                                                onChange={(e) => setAgentName(e.target.value)}
-                                                placeholder="My Agent"
-                                                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-bold"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">System Prompt</label>
-                                            <textarea
-                                                value={systemPrompt}
-                                                onChange={(e) => setSystemPrompt(e.target.value)}
-                                                placeholder="Define your agent's personality and behavior..."
-                                                rows={6}
-                                                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all resize-none text-sm leading-relaxed"
-                                            />
-                                        </div>
-
-                                        <button
-                                            onClick={handleSaveAgent}
-                                            disabled={saving || !agentName}
-                                            className="w-full py-3 rounded-xl bg-primary hover:opacity-90 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
-                                        >
-                                            {saving ? <Loader2 size={16} className="animate-spin" /> : null}
-                                            Save Changes
-                                        </button>
-                                    </div>
-                                </CollapsibleCard>
-
-                                {/* Model & Intelligence */}
-                                <CollapsibleCard title="Intelligence" icon={<Brain size={18} />}>
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Current Model</label>
-                                            <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white/50 text-sm font-medium">
-                                                Using shared OpenRouter — auto-configured
-                                            </div>
-                                        </div>
-                                        <p className="text-xs text-muted-foreground leading-relaxed">
-                                            Your agent uses our shared AI infrastructure by default. Customize this in the Raw Config for advanced setups.
-                                        </p>
-                                    </div>
-                                </CollapsibleCard>
-
-                                {/* Terminate Section */}
-                                <div className="pt-8 pb-4">
-                                    <button
-                                        onClick={handleTerminateAgent}
-                                        disabled={agentToggling}
-                                        className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-red-500/20 text-red-500 hover:bg-red-500/10 active:scale-[0.98] text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
-                                    >
-                                        <AlertTriangle size={16} />
-                                        terminate agent (remove agent)
-                                    </button>
-                                </div>
-                            </>
-                        )}
+                        <TabAgent
+                            agent={agent}
+                            agentName={agentName}
+                            setAgentName={setAgentName}
+                            systemPrompt={systemPrompt}
+                            setSystemPrompt={setSystemPrompt}
+                            handleLaunchAgent={handleLaunchAgent}
+                            handleToggleAgent={handleToggleAgent}
+                            handleSaveAgent={handleSaveAgent}
+                            handleTerminateAgent={handleTerminateAgent}
+                            agentToggling={agentToggling}
+                            saving={saving}
+                        />
                     </div>
                 )}
 
                 {activeTab === 'security' && (
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
-                        {/* Security */}
-                        <CollapsibleCard title="Environment Security" icon={<Shield size={18} />} defaultOpen>
-                            <div className="space-y-4">
-                                <div className="grid gap-3">
-                                    {[
-                                        { level: SecurityLevel.STANDARD, label: 'Standard', desc: 'Secure Sandbox: Read-only rootfs, no network privileges, dropped caps. Recommended.' },
-                                        { level: SecurityLevel.ADVANCED, label: 'Advanced', desc: 'Extended isolation: Adds SYS_ADMIN capability for specialized tools. Still readonly root.' },
-                                        { level: SecurityLevel.PRO, label: 'Pro', desc: 'Full Development: Adds writeable rootfs and NET_ADMIN. For complex agent tasks.' },
-                                        { level: SecurityLevel.ROOT, label: 'Root (Super Admin)', desc: 'UNSAFE: Full host level access as root user. Use with extreme caution.', adminOnly: true }
-                                    ]
-                                        .filter(opt => !opt.adminOnly || profile?.role === 'super_admin')
-                                        .map((opt) => (
-                                            <button
-                                                key={opt.level}
-                                                onClick={() => handleUpdateSecurity(opt.level)}
-                                                className={cn(
-                                                    "group relative flex flex-col items-start gap-1 px-4 py-3 rounded-xl border text-left transition-all",
-                                                    securityLevel === opt.level
-                                                        ? "bg-primary/10 border-primary shadow-[0_4px_12px_rgba(var(--primary-rgb),0.1)]"
-                                                        : "bg-white/5 border-white/10 hover:border-white/20 active:bg-white/10"
-                                                )}
-                                            >
-                                                <div className="flex items-center justify-between w-full">
-                                                    <span className={cn(
-                                                        "text-sm font-semibold",
-                                                        securityLevel === opt.level ? "text-primary" : "text-white"
-                                                    )}>
-                                                        {opt.label} Isolation
-                                                    </span>
-                                                    {securityLevel === opt.level && (
-                                                        <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                                                            <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <p className="text-xs text-muted-foreground leading-relaxed">
-                                                    {opt.desc}
-                                                </p>
-                                            </button>
-                                        ))}
-                                </div>
+                        <TabSecurity
+                            profile={profile}
+                            securityLevel={securityLevel}
+                            handleUpdateSecurity={handleUpdateSecurity}
+                            gatewayToken={gatewayToken}
+                            rawGatewayToken={rawGatewayToken}
+                            isEncrypted={isEncrypted}
+                        />
+                    </div>
+                )}
 
-                                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200/80">
-                                    <div className="flex gap-3">
-                                        <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-                                        <p className="text-[11px] leading-relaxed">
-                                            <strong>Warning:</strong> Changing security settings requires an agent restart to take effect.
-                                            Higher levels grant the agent more access to the underlying system, which should only be used if trusted.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </CollapsibleCard>
-
-                        {/* API Key (BYOK) */}
-                        <CollapsibleCard title="Personal API Keys" icon={<Key size={18} />} badge="Advanced">
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10">
-                                    <div className={cn(
-                                        'w-2.5 h-2.5 rounded-full',
-                                        apiKeyStatus === 'configured'
-                                            ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]'
-                                            : 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.5)]'
-                                    )} />
-                                    <span className="text-sm font-medium text-white/90">
-                                        {apiKeyStatus === 'configured' ? 'Key configured' : 'Using Shared Infrastructure'}
-                                    </span>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">OpenRouter API Key</label>
-                                    <input
-                                        type="password"
-                                        value={apiKey}
-                                        onChange={(e) => setApiKey(e.target.value)}
-                                        placeholder="sk-or-..."
-                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono text-xs"
-                                    />
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                        Providing your own key bypasses shared credit usage and platform limits.
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={handleSaveApiKey}
-                                    disabled={saving || !apiKey}
-                                    className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                                >
-                                    Update Key
-                                </button>
-                            </div>
-                        </CollapsibleCard>
-
-                        {/* Gateway Access */}
-                        <CollapsibleCard title="Gateway Access" icon={<Zap size={18} />} defaultOpen>
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground text-primary/80">API Gateway Token</label>
-                                    <div className="flex gap-2">
-                                        <div className="flex-1 px-4 py-3 rounded-xl bg-primary/5 border border-primary/20 text-primary font-mono text-xs select-all flex items-center">
-                                            {gatewayToken || 'auto-generating...'}
-                                        </div>
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground leading-relaxed flex items-center gap-1.5">
-                                        <Shield size={10} className="text-primary/50" />
-                                        {isEncrypted(rawGatewayToken)
-                                            ? 'Token is encrypted at rest for your security. Update to change.'
-                                            : 'Use this token in your client applications to authenticate with this agent.'}
-                                    </p>
-                                </div>
-                            </div>
-                        </CollapsibleCard>
+                {activeTab === 'keys' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
+                        <TabKeys
+                            apiKeyStatus={apiKeyStatus}
+                            provider={provider}
+                            setProvider={setProvider}
+                            apiKey={apiKey}
+                            setApiKey={setApiKey}
+                            modelId={modelId}
+                            setModelId={setModelId}
+                            fetchModels={fetchModels}
+                            fetchingModels={fetchingModels}
+                            modelError={modelError}
+                            availableModels={availableModels}
+                            handleSaveApiKey={handleSaveApiKey}
+                            saving={saving}
+                        />
                     </div>
                 )}
 
                 {activeTab === 'billing' && (
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
-                        <CollapsibleCard title="Wallet & Usage" icon={<CreditCard size={18} />} defaultOpen>
-                            <div className="space-y-5">
-                                {/* Stats grid */}
-                                <div className="grid grid-cols-3 gap-3">
-                                    {/* Credits */}
-                                    <div className="flex flex-col items-center py-4 px-2 bg-white/5 rounded-2xl border border-white/5 shadow-inner">
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Credits</p>
-                                        <span className="text-xl font-black text-white">
-                                            {leaseBilling?.hasLease && leaseBilling.limitUsd !== null
-                                                ? `$${leaseBilling.limitUsd.toFixed(2)}`
-                                                : '∞'}
-                                        </span>
-                                        <p className="text-[9px] text-muted-foreground/60 mt-0.5">limit</p>
-                                    </div>
-                                    {/* Usage */}
-                                    <div className="flex flex-col items-center py-4 px-2 bg-white/5 rounded-2xl border border-white/5 shadow-inner">
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Usage</p>
-                                        <span className="text-xl font-black text-amber-400">
-                                            ${(leaseBilling?.usageUsd ?? 0).toFixed(2)}
-                                        </span>
-                                        <p className="text-[9px] text-muted-foreground/60 mt-0.5">spent</p>
-                                    </div>
-                                    {/* Available */}
-                                    <div className="flex flex-col items-center py-4 px-2 bg-white/5 rounded-2xl border border-white/5 shadow-inner">
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Available</p>
-                                        <span className={cn(
-                                            'text-xl font-black',
-                                            (() => {
-                                                if (!leaseBilling?.hasLease || leaseBilling.limitUsd === null) return 'text-green-400';
-                                                const avail = leaseBilling.limitUsd - leaseBilling.usageUsd;
-                                                return avail <= 0 ? 'text-red-400' : avail < leaseBilling.limitUsd * 0.2 ? 'text-yellow-400' : 'text-green-400';
-                                            })()
-                                        )}>
-                                            {leaseBilling?.hasLease && leaseBilling.limitUsd !== null
-                                                ? `$${Math.max(0, leaseBilling.limitUsd - leaseBilling.usageUsd).toFixed(2)}`
-                                                : '∞'}
-                                        </span>
-                                        <p className="text-[9px] text-muted-foreground/60 mt-0.5">remaining</p>
-                                    </div>
-                                </div>
-
-                                {/* Expiry / Status */}
-                                {leaseBilling?.hasLease && leaseBilling.expiresAt && (
-                                    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/5 text-xs text-muted-foreground">
-                                        <span className="font-bold uppercase tracking-widest text-[10px]">Lease Expires</span>
-                                        <span className="font-mono">
-                                            {new Date(leaseBilling.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                        </span>
-                                    </div>
-                                )}
-
-                                {/* Warning if no lease or exhausted */}
-                                {leaseBilling && !leaseBilling.hasLease && (
-                                    <div className="flex items-start gap-3 px-4 py-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
-                                        <AlertTriangle size={20} className="text-yellow-400 flex-shrink-0 mt-0.5" />
-                                        <div>
-                                            <p className="text-sm font-bold text-yellow-200 uppercase tracking-wide">No Active Lease</p>
-                                            <p className="text-xs text-yellow-200/60 mt-1 leading-relaxed">
-                                                No shared API key is linked to your agent. Go to Agent settings and re-sync your key.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                                {leaseBilling?.hasLease && leaseBilling.limitUsd !== null && (leaseBilling.limitUsd - leaseBilling.usageUsd) <= 0 && (
-                                    <div className="flex items-start gap-3 px-4 py-4 rounded-xl bg-red-500/10 border border-red-500/20">
-                                        <AlertTriangle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
-                                        <div>
-                                            <p className="text-sm font-bold text-red-200 uppercase tracking-wide">Credits Exhausted</p>
-                                            <p className="text-xs text-red-200/60 mt-1 leading-relaxed">
-                                                Your agent will pause until credits are renewed. Contact support or top up.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <button className="w-full py-4 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 hover:opacity-90 active:scale-[0.98] text-white font-black text-[11px] uppercase tracking-[0.1em] transition-all shadow-xl shadow-purple-500/20 flex items-center justify-center gap-2">
-                                    <Zap size={16} fill="white" />
-                                    Top Up Credits
-                                </button>
-
-                                <p className="text-[10px] text-center text-muted-foreground uppercase font-black tracking-widest">
-                                    Protected by Stripe • No monthly fees
-                                </p>
-                            </div>
-                        </CollapsibleCard>
+                        <TabBilling leaseBilling={leaseBilling} />
                     </div>
                 )}
 
                 {activeTab === 'raw' && (
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
-                        <CollapsibleCard title="Raw Configuration (JSON)" icon={<Code size={18} />} defaultOpen>
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Agent Config</label>
-                                        <span className="text-[9px] uppercase font-black text-primary px-2 py-0.5 rounded bg-primary/10 tracking-widest border border-primary/20">Expert Mode</span>
-                                    </div>
-                                    <textarea
-                                        value={jsonContent}
-                                        onChange={(e) => setJsonContent(e.target.value)}
-                                        placeholder="{}"
-                                        rows={18}
-                                        className="w-full px-4 py-4 rounded-2xl bg-black font-mono text-[11px] border border-white/10 text-green-400 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all resize-y shadow-inner leading-normal"
-                                    />
-                                    <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 px-1 py-1 italic">
-                                        <AlertTriangle size={10} className="text-yellow-500" />
-                                        Advanced edits can cause initialization errors. Use with caution.
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={handleSaveJson}
-                                    disabled={saving}
-                                    className="w-full py-4 rounded-2xl bg-primary hover:opacity-90 active:scale-[0.98] text-white font-black text-[11px] uppercase tracking-widest transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
-                                >
-                                    {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                                    Sync Configuration
-                                </button>
-                            </div>
-                        </CollapsibleCard>
+                        <TabRaw jsonContent={jsonContent} setJsonContent={setJsonContent} />
+                        <div className="mt-4">
+                            <button
+                                onClick={handleSaveJson}
+                                disabled={saving}
+                                className="w-full py-4 rounded-2xl bg-primary hover:opacity-90 active:scale-[0.98] text-white font-black text-[11px] uppercase tracking-widest transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                Sync Configuration
+                            </button>
+                        </div>
                     </div>
                 )}
 
