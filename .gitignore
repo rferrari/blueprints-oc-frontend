@@ -38,7 +38,3 @@ workspaces/
 .agent/skills/ssh-server.md
 
 packages/worker/openclaw/
-packages/frontend/
-packages/frontend-original/
-packages/backend/
-
